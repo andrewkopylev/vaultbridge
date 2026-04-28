@@ -1,0 +1,25 @@
+{
+  "name": "obsidian-vault-bridge-sftp",
+  "version": "0.1.0",
+  "description": "Vault Bridge SFTP — bidirectional Obsidian vault sync over SSH/SFTP",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": ["obsidian", "sftp", "ssh", "sync"],
+  "author": "Andrew Kopylev",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ssh2-sftp-client": "^9.0.4",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.2",
+    "obsidian": "latest",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "ssh2-sftp-client": "^10.0.3"
+  }
+}

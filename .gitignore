@@ -1,0 +1,9 @@
+node_modules/
+main.js
+main.js.map
+data.json
+.DS_Store
+*.log
+
+# Personal docs not meant for the public repo:
+RELEASING.md
