@@ -2,11 +2,13 @@ import type { App, DataAdapter } from "obsidian";
 import { SftpClient } from "../sftp/client";
 import { RemoteState } from "../sftp/remote-state";
 import { remotePathOf, parentDir } from "./path-utils";
+import { runWithLimit } from "./concurrency";
 import type { IndexStore } from "./index-store";
 import type { LastSyncedStore } from "./last-synced";
 import type { Scanner } from "./scanner";
 import type { ExcludeMatcher } from "./exclude";
 import type { DeviceStore } from "../state/device-store";
+import type { KnownHostsStore } from "../state/known-hosts-store";
 import type { SftpSyncSettings } from "../settings";
 import { STATE_PATHS } from "../state/paths";
 
@@ -49,6 +51,7 @@ export class PullEngine {
     private scanner: Scanner,
     private exclude: ExcludeMatcher,
     private lastSynced: LastSyncedStore,
+    private knownHosts: KnownHostsStore,
   ) {}
 
   async pullAll(opts: PullOptions = {}): Promise<PullResult> {
@@ -60,7 +63,7 @@ export class PullEngine {
     // Refresh local index so our diff is accurate.
     await this.scanner.fullScan();
 
-    const client = new SftpClient(this.settings);
+    const client = new SftpClient(this.settings, this.knownHosts);
     await client.connect();
     try {
       await client.ensureRemoteRoot();
@@ -109,7 +112,10 @@ export class PullEngine {
         let totalBytes = 0;
         await this.ensureLocalDir(adapter, STATE_PATHS.tmp);
 
-        for (const [path, mEntry] of toDownload) {
+        // Parallel pool of downloads on the same SFTP session.
+        // ssh2 multiplexes RPC requests over the channel; this hides RTT
+        // for many small files. Order of completion is not preserved.
+        await runWithLimit(toDownload, this.settings.concurrency, async ([path, mEntry]) => {
           onProgress?.({
             processed: alreadyOk + downloaded,
             downloaded,
@@ -120,12 +126,11 @@ export class PullEngine {
           });
 
           await this.downloadOne(client, adapter, path);
-
           // Refresh the index entry so any late-firing vault event becomes a no-op.
           await this.scanner.refreshOne(path);
           downloaded++;
           totalBytes += mEntry.size;
-        }
+        });
 
         // Final progress tick.
         onProgress?.({

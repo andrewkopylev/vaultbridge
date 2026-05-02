@@ -3,7 +3,7 @@
 # Usage:
 #   ./install.sh /path/to/your/vault
 #
-# Copies main.js and manifest.json into <vault>/.obsidian/plugins/vault-bridge-sftp/.
+# Copies main.js, manifest.json, and styles.css into <vault>/.obsidian/plugins/vault-bridge-sftp/.
 # Existing data.json (your settings) and state/ (index, snapshot, deviceId) are preserved.
 
 set -euo pipefail
@@ -19,7 +19,7 @@ Usage: $0 <vault-path>
 Example:
   $0 /home/user/Documents/MyVault
 
-Copies main.js + manifest.json into:
+Copies main.js + manifest.json + styles.css into:
   <vault>/.obsidian/plugins/$PLUGIN_ID/
 
 Preserves: data.json, state/.
@@ -46,15 +46,22 @@ if [ ! -f "$SRC_DIR/manifest.json" ]; then
   exit 1
 fi
 
+if [ ! -f "$SRC_DIR/styles.css" ]; then
+  echo "Error: styles.css not found at $SRC_DIR." >&2
+  exit 1
+fi
+
 DEST_DIR="$VAULT/.obsidian/plugins/$PLUGIN_ID"
 mkdir -p "$DEST_DIR"
 
-# Replace any existing main.js / manifest.json (file or symlink). data.json + state/ stay put.
+# Replace any existing main.js / manifest.json / styles.css (file or symlink). data.json + state/ stay put.
 [ -e "$DEST_DIR/main.js" ] && rm -f "$DEST_DIR/main.js"
 [ -e "$DEST_DIR/manifest.json" ] && rm -f "$DEST_DIR/manifest.json"
+[ -e "$DEST_DIR/styles.css" ] && rm -f "$DEST_DIR/styles.css"
 
 cp "$SRC_DIR/main.js" "$DEST_DIR/main.js"
 cp "$SRC_DIR/manifest.json" "$DEST_DIR/manifest.json"
+cp "$SRC_DIR/styles.css" "$DEST_DIR/styles.css"
 
 echo "✓ Installed Vault Bridge SFTP into:"
 echo "  $DEST_DIR"

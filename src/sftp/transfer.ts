@@ -3,29 +3,57 @@ import { SftpClient } from "./client";
 import { remotePathOf, parentDir } from "../sync/path-utils";
 import { STATE_PATHS } from "../state/paths";
 
-/** Cache of remote directories already known to exist within a single sync transaction. */
+/** Cache of remote directories already known to exist within a single sync transaction.
+ *  Concurrency-safe: every ancestor along a path is ensured top-down through the same
+ *  in-flight promise map, so parallel uploads sharing a common prefix
+ *  (e.g. many files under `.obsidian/plugins/`) cannot race on `mkdir` of that prefix. */
 export class RemoteDirCache {
   private known: Set<string>;
+  private inFlight: Map<string, Promise<void>>;
 
   constructor(remoteRoot: string) {
     this.known = new Set([remoteRoot.replace(/\/+$/, "")]);
+    this.inFlight = new Map();
   }
 
   async ensureParentOf(client: SftpClient, remoteFilePath: string): Promise<void> {
     const parent = parentDir(remoteFilePath);
-    if (!parent || this.known.has(parent)) return;
-    if ((await client.raw.exists(parent)) === false) {
-      await client.raw.mkdir(parent, true);
+    if (!parent) return;
+    await this.ensureDir(client, parent);
+  }
+
+  private async ensureDir(client: SftpClient, dir: string): Promise<void> {
+    if (this.known.has(dir)) return;
+
+    const existing = this.inFlight.get(dir);
+    if (existing) {
+      await existing;
+      return;
     }
-    this.known.add(parent);
-    // mark ancestors as ensured too — mkdir(..., recursive) created them
-    let p = parent;
-    while (true) {
-      const grand = parentDir(p);
-      if (!grand || this.known.has(grand)) break;
-      this.known.add(grand);
-      p = grand;
+
+    const promise = this.createChain(client, dir);
+    this.inFlight.set(dir, promise);
+    await promise;
+  }
+
+  private async createChain(client: SftpClient, dir: string): Promise<void> {
+    // First make sure the parent exists. Recursion is bounded by remoteRoot
+    // (seeded into `known` in the constructor) — once we reach it, ensureDir returns.
+    const grand = parentDir(dir);
+    if (grand) await this.ensureDir(client, grand);
+
+    // Parent is now guaranteed to exist; create this directory non-recursively.
+    // Tolerate a benign race where the directory was created between exists() and mkdir()
+    // (e.g. by a concurrent recursive mkdir on a sibling path from an earlier sync attempt,
+    // or a server returning EACCES instead of EEXIST on mkdir-of-existing-dir).
+    if ((await client.raw.exists(dir)) === false) {
+      try {
+        await client.raw.mkdir(dir, false);
+      } catch (err) {
+        if ((await client.raw.exists(dir)) !== "d") throw err;
+      }
     }
+    this.known.add(dir);
   }
 }
 

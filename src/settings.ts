@@ -21,6 +21,8 @@ export interface SftpSyncSettings {
   autoSyncOnQuit: boolean;               // (b) push on close (best-effort, with timeout)
   autoSyncOnChange: boolean;             // (c) debounced sync after vault changes
   autoSyncDebounceSeconds: number;       // debounce window for (c). Default 10.
+
+  concurrency: number;                   // parallel transfers per sync (1-20). Default 8.
 }
 // NOTE: deviceId / deviceLabel are NOT here — they live in state/device.json
 // so that data.json can be safely shared across devices via sync.
@@ -58,7 +60,11 @@ export const DEFAULT_SETTINGS: SftpSyncSettings = {
   autoSyncOnQuit: true,
   autoSyncOnChange: true,
   autoSyncDebounceSeconds: 10,
+  concurrency: 8,
 };
+
+export const MAX_CONCURRENCY = 20;
+export const MIN_CONCURRENCY = 1;
 
 export class SftpSyncSettingTab extends PluginSettingTab {
   plugin: SftpSyncPlugin;
@@ -72,10 +78,8 @@ export class SftpSyncSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Vault Bridge SFTP" });
-
     // ─── Connection ───────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Connection" });
+    new Setting(containerEl).setName("Connection").setHeading();
 
     new Setting(containerEl)
       .setName("Host")
@@ -117,7 +121,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Authentication")
-      .setDesc("Password or SSH private key. Host fingerprint is NOT verified by user request.")
+      .setDesc("Password or SSH private key. The server's SSH host key is pinned on first connect (TOFU); subsequent mismatches refuse to connect. Use \"Forget remembered host fingerprint\" after a deliberate server reinstall.")
       .addDropdown((d) =>
         d
           .addOption("password", "Password")
@@ -133,7 +137,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
     if (this.plugin.settings.authMethod === "password") {
       new Setting(containerEl)
         .setName("Password")
-        .setDesc("Stored in plain text inside data.json — be aware on shared machines.")
+        .setDesc("Encrypted at rest (AES-256-GCM) with a per-device key in state/secret.key. The state directory never syncs, so a leaked data.json on the SFTP server cannot be decrypted without local access. SSH keys are still preferred on shared machines.")
         .addText((t) => {
           t.inputEl.type = "password";
           t.setValue(this.plugin.settings.password).onChange(async (v) => {
@@ -181,7 +185,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       );
 
     // ─── Sync scope ───────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Sync scope" });
+    new Setting(containerEl).setName("Sync scope").setHeading();
 
     new Setting(containerEl)
       .setName("Sync everything (.obsidian too)")
@@ -208,7 +212,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setDesc("One pattern per line. Gitignore-style. The plugin's own state/ directory is ALWAYS excluded regardless.")
       .addTextArea((t) => {
         t.inputEl.rows = 6;
-        t.inputEl.style.width = "100%";
+        t.inputEl.addClass("vbsftp-textarea-full");
         t.setValue(this.plugin.settings.excludePatterns.join("\n")).onChange(async (v) => {
           this.plugin.settings.excludePatterns = v
             .split("\n")
@@ -219,7 +223,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       });
 
     // ─── Auto-sync triggers ───────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Auto-sync" });
+    new Setting(containerEl).setName("Auto-sync").setHeading();
 
     new Setting(containerEl)
       .setName("Sync on startup")
@@ -265,8 +269,25 @@ export class SftpSyncSettingTab extends PluginSettingTab {
           }),
       );
 
+    // ─── Performance ──────────────────────────────────────────────────────
+    new Setting(containerEl).setName("Performance").setHeading();
+
+    new Setting(containerEl)
+      .setName("Concurrent transfers")
+      .setDesc(`How many uploads / downloads run in parallel inside a single SFTP connection. Higher = faster on high-RTT links, but heavier server load. Range ${MIN_CONCURRENCY}-${MAX_CONCURRENCY}. Default 8.`)
+      .addText((t) =>
+        t
+          .setValue(String(this.plugin.settings.concurrency))
+          .onChange(async (v) => {
+            const n = parseInt(v, 10);
+            this.plugin.settings.concurrency =
+              Number.isFinite(n) && n >= MIN_CONCURRENCY && n <= MAX_CONCURRENCY ? n : 8;
+            await this.plugin.saveSettings();
+          }),
+      );
+
     // ─── Actions ──────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Actions" });
+    new Setting(containerEl).setName("Actions").setHeading();
 
     new Setting(containerEl)
       .setName("Test connection")
@@ -293,7 +314,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       );
 
     // ─── Device ───────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Device (local only, not synced)" });
+    new Setting(containerEl).setName("Device (local only, not synced)").setHeading();
 
     new Setting(containerEl)
       .setName("Device label")

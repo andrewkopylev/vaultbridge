@@ -71,7 +71,7 @@ Then in Obsidian → Settings → Community plugins → enable **Vault Bridge SF
 | Setting | Description |
 |---|---|
 | Host / Port / Username | SSH connection info. |
-| Authentication | Password or Private key (with optional passphrase). No host fingerprint verification. |
+| Authentication | Password or Private key (with optional passphrase). Secrets stored encrypted (see Security notes). Host key pinned on first connect (TOFU). |
 | Remote root | Absolute path on the server. Created on first connect if missing. |
 | Sync everything (`.obsidian` too) | When ON, plugins/themes/snippets/hotkeys are synced so all devices look identical. The plugin's own `state/` directory is always excluded regardless. Default: ON. |
 | Sync workspace.json | When OFF, panel-layout files stay device-specific (recommended — turning it ON causes flapping when working on two devices at once). Default: OFF. |
@@ -80,6 +80,7 @@ Then in Obsidian → Settings → Community plugins → enable **Vault Bridge SF
 | Sync on quit | Best-effort push when Obsidian closes (5-second timeout, push-only — no prompts). Default: ON. |
 | Sync after changes | Debounced sync triggered by vault edits. Default: ON. |
 | Debounce delay | Seconds to wait after the last edit before auto-syncing. Default: 10. |
+| Concurrent transfers | How many uploads / downloads run in parallel inside a single SFTP connection. Range 1-20, default 8. Higher hides RTT on slow links; lower is gentler on small servers. |
 | Device label | Human-readable name used in conflict-copy filenames. Per-device, not synced. |
 
 ## Commands reference
@@ -107,6 +108,7 @@ All commands are accessible via Command Palette (`Ctrl+P` / `Cmd+P`):
 |---|---|
 | `Vault Bridge: Inspect remote state` | Show server-side manifest generation, file count, last writer, lock status. |
 | `Vault Bridge: Force-release remote sync lock` | Release a stuck lock that belongs to *this* device (foreign locks are not touched). |
+| `Vault Bridge: Forget remembered host fingerprint` | Drop the pinned SHA-256 host-key fingerprint for the current `host:port`. Next connect re-trusts on first contact. Use only after a deliberate server reinstall. |
 | `Vault Bridge: Rebuild remote manifest` | Walk the actual server filesystem, hash every file, rewrite the manifest. Use after manual file changes on the server. |
 | `Vault Bridge: Reset local snapshot` | Wipe this device's "last sync" record. Next sync treats every local file as a fresh addition. |
 | `Vault Bridge: Rebuild local index` | Force a re-scan and re-hash of every local file. |
@@ -147,6 +149,8 @@ In `<vault>/.obsidian/plugins/vault-bridge-sftp/state/` (never synced):
 - `index.json` — current local index
 - `last-synced.json` — snapshot S
 - `device.json` — per-device id and label
+- `secret.key` — 256-bit AES key used to encrypt password/passphrase in `data.json`. Generated on first run.
+- `known-hosts.json` — pinned SHA-256 host-key fingerprints (TOFU)
 
 ## Multi-device guide
 
@@ -211,9 +215,9 @@ private/secrets.md
 
 ## Security notes
 
-- **Password is stored in plain text** in `data.json` inside the vault. If you sync `.obsidian` (the default), the password is pushed to the server too. Prefer SSH key authentication on shared machines.
-- **No host fingerprint verification.** This plugin trusts whatever server is at the configured host:port. Use only on networks you control or via a VPN to mitigate man-in-the-middle risk.
-- **No end-to-end encryption.** Files on the server are stored as-is. If you have sensitive notes, encrypt the server's filesystem.
+- **Password and key passphrase are encrypted at rest** with AES-256-GCM. The encryption key is generated on first run and stored in `<vault>/.obsidian/plugins/vault-bridge-sftp/state/secret.key`. The state directory is *hard-excluded* from sync, so even if `data.json` (with the encrypted blob) is pushed to the SFTP server alongside the rest of `.obsidian`, the key needed to decrypt it stays on the originating device. This is defense-in-depth, not protection against malware running locally with your privileges. SSH key authentication is still preferred on shared machines.
+- **Host key pinning (TOFU).** On the first connection to a host, the server's SHA-256 host-key fingerprint is recorded in `state/known-hosts.json`. Subsequent connections refuse to proceed if the fingerprint changes — protecting against silent man-in-the-middle. After a deliberate server reinstall run **Forget remembered host fingerprint** to re-trust on next connect.
+- **No end-to-end encryption of file content.** Files on the server are stored as-is. If you have sensitive notes, encrypt the server's filesystem.
 - **`.sync/` directory is world-readable** by default. Lock down permissions if you store the vault on a multi-user server.
 
 ## Limitations
@@ -221,7 +225,7 @@ private/secrets.md
 - **Desktop only** (`isDesktopOnly: true`). Mobile Obsidian cannot open raw SSH sockets.
 - **No rename detection by hash yet.** A renamed large file is currently re-uploaded. Planned for a future release.
 - **Conflict resolution by mtime** assumes device clocks are roughly in sync.
-- **Single SFTP connection per sync** — operations are serial. For thousands of files, throughput is RTT-bound.
+- **Single SFTP connection per sync.** Operations are pipelined over one SSH channel — concurrent file transfers hide per-file RTT, but very large files share a single TCP window. Configurable via "Concurrent transfers" (default 8).
 - **External edits to server files** (outside the plugin) require **Rebuild remote manifest** to re-establish consistency.
 
 ## Development
@@ -250,6 +254,7 @@ src/
 │   ├── push-engine.ts         # one-way push (force-push)
 │   ├── pull-engine.ts         # one-way pull (additive)
 │   ├── manifest-rebuilder.ts  # walk server, hash, rewrite manifest
+│   ├── concurrency.ts         # bounded parallel pool (runWithLimit)
 │   ├── exclude.ts             # gitignore-style matcher
 │   ├── hash.ts                # sha1
 │   ├── index-store.ts         # local file index
@@ -257,7 +262,9 @@ src/
 │   └── scanner.ts             # walk vault, build index
 ├── state/
 │   ├── paths.ts               # state-dir path constants
-│   └── device-store.ts        # per-device id/label
+│   ├── device-store.ts        # per-device id/label
+│   ├── secret-store.ts        # AES-256-GCM encryption of password/passphrase
+│   └── known-hosts-store.ts   # TOFU host fingerprint pinning
 └── ui/
     ├── bulk-delete-modal.ts   # 5%/20-file deletion confirmation
     └── server-reset-modal.ts  # gen=0 vs S>0 recovery dialog

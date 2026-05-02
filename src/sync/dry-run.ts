@@ -7,6 +7,7 @@ import type { LastSyncedStore } from "./last-synced";
 import type { Scanner } from "./scanner";
 import type { ExcludeMatcher } from "./exclude";
 import type { DeviceStore } from "../state/device-store";
+import type { KnownHostsStore } from "../state/known-hosts-store";
 import type { SftpSyncSettings } from "../settings";
 
 export interface DryRunReport {
@@ -27,10 +28,11 @@ export async function dryRun(
   scanner: Scanner,
   exclude: ExcludeMatcher,
   lastSynced: LastSyncedStore,
+  knownHosts: KnownHostsStore,
 ): Promise<DryRunReport> {
   await scanner.fullScan();
 
-  const client = new SftpClient(settings);
+  const client = new SftpClient(settings, knownHosts);
   await client.connect();
   try {
     await client.ensureRemoteRoot();

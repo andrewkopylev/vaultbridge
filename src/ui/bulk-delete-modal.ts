@@ -23,7 +23,7 @@ export class BulkDeleteConfirmModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h2", { text: "⚠️ Vault Bridge: bulk deletion warning" });
+    contentEl.createEl("h2", { text: "Bulk deletion warning" });
 
     const out = this.warning.outgoingDeletes.length;
     const inc = this.warning.incomingDeletes.length;
@@ -37,28 +37,20 @@ export class BulkDeleteConfirmModal extends Modal {
     summaryEl.appendText(` (out of ${tot} tracked files). Please review before continuing.`);
 
     if (out > 0) {
-      contentEl.createEl("h3", { text: `Files to be DELETED ON SERVER (${out}):` });
+      contentEl.createEl("h3", { text: `Files to be deleted on server (${out}):` });
       this.renderList(contentEl, this.warning.outgoingDeletes);
     }
     if (inc > 0) {
-      contentEl.createEl("h3", { text: `Files to be DELETED LOCALLY (${inc}):` });
+      contentEl.createEl("h3", { text: `Files to be deleted locally (${inc}):` });
       this.renderList(contentEl, this.warning.incomingDeletes);
     }
 
-    const note = contentEl.createEl("p", {
-      cls: "mod-warning",
-    });
-    note.style.fontSize = "0.85em";
-    note.style.opacity = "0.8";
+    const note = contentEl.createEl("p", { cls: "vbsftp-modal-note" });
     note.appendText(
       "Choosing \"Skip deletes\" will perform pushes/pulls/conflict-copies but leave deletions for review later — the next sync will re-detect them.",
     );
 
-    const buttons = contentEl.createDiv({ cls: "modal-button-container" });
-    buttons.style.display = "flex";
-    buttons.style.gap = "0.5em";
-    buttons.style.justifyContent = "flex-end";
-    buttons.style.marginTop = "1em";
+    const buttons = contentEl.createDiv({ cls: "vbsftp-modal-buttons" });
 
     const cancelBtn = buttons.createEl("button", { text: "Cancel sync" });
     cancelBtn.addEventListener("click", () => {
@@ -86,11 +78,7 @@ export class BulkDeleteConfirmModal extends Modal {
   }
 
   private renderList(container: HTMLElement, ops: SyncOp[]): void {
-    const ul = container.createEl("ul");
-    ul.style.maxHeight = "200px";
-    ul.style.overflowY = "auto";
-    ul.style.fontFamily = "var(--font-monospace, monospace)";
-    ul.style.fontSize = "0.85em";
+    const ul = container.createEl("ul", { cls: "vbsftp-modal-file-list" });
 
     const shown = ops.slice(0, PREVIEW_LIMIT);
     for (const op of shown) {

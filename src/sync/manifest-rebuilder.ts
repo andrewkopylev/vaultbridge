@@ -4,6 +4,7 @@ import { downloadToBuffer } from "../sftp/transfer";
 import { sha1OfBuffer } from "./hash";
 import type { ExcludeMatcher } from "./exclude";
 import type { DeviceStore } from "../state/device-store";
+import type { KnownHostsStore } from "../state/known-hosts-store";
 import type { SftpSyncSettings } from "../settings";
 
 export interface RebuildProgress {
@@ -29,10 +30,11 @@ export async function rebuildRemoteManifest(
   settings: SftpSyncSettings,
   deviceStore: DeviceStore,
   exclude: ExcludeMatcher,
+  knownHosts: KnownHostsStore,
   onProgress?: (p: RebuildProgress) => void,
 ): Promise<RebuildResult> {
   const t0 = Date.now();
-  const client = new SftpClient(settings);
+  const client = new SftpClient(settings, knownHosts);
   await client.connect();
   try {
     await client.ensureRemoteRoot();

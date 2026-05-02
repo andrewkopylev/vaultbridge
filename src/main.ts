@@ -6,6 +6,8 @@ import { IndexStore } from "./sync/index-store";
 import { Scanner } from "./sync/scanner";
 import { ExcludeMatcher } from "./sync/exclude";
 import { DeviceStore } from "./state/device-store";
+import { SecretStore } from "./state/secret-store";
+import { KnownHostsStore } from "./state/known-hosts-store";
 import { LastSyncedStore } from "./sync/last-synced";
 import { PushEngine } from "./sync/push-engine";
 import { PullEngine } from "./sync/pull-engine";
@@ -22,6 +24,8 @@ export default class SftpSyncPlugin extends Plugin {
   scanner!: Scanner;
   deviceStore!: DeviceStore;
   lastSynced!: LastSyncedStore;
+  secretStore!: SecretStore;
+  knownHosts!: KnownHostsStore;
 
   private statusBar: HTMLElement | null = null;
   private syncInProgress = false;
@@ -33,6 +37,13 @@ export default class SftpSyncPlugin extends Plugin {
   private autoSyncDebouncer: ReturnType<typeof debounce> | null = null;
 
   async onload() {
+    // SecretStore must be ready before loadSettings — encrypted secrets are decrypted on load.
+    this.secretStore = new SecretStore(this.app);
+    await this.secretStore.load();
+
+    this.knownHosts = new KnownHostsStore(this.app);
+    await this.knownHosts.load();
+
     await this.loadSettings();
 
     this.deviceStore = new DeviceStore(this.app);
@@ -119,6 +130,12 @@ export default class SftpSyncPlugin extends Plugin {
       callback: () => this.resetLocalSnapshot(),
     });
 
+    this.addCommand({
+      id: "forget-host-fingerprint",
+      name: "Forget remembered host fingerprint",
+      callback: () => this.forgetHostFingerprint(),
+    });
+
     // (e) Manual trigger: ribbon icon (in addition to the status bar click).
     this.addRibbonIcon("refresh-cw", "Vault Bridge: Sync now", () => this.syncNow());
 
@@ -172,16 +189,54 @@ export default class SftpSyncPlugin extends Plugin {
       );
     }
 
+    // Decrypt encrypted secrets, flag plaintext leftovers for one-time re-encryption.
+    let needsResaveEncrypted = false;
+    for (const field of ["password", "passphrase"] as const) {
+      const v = raw[field];
+      if (typeof v !== "string" || v.length === 0) continue;
+      if (this.secretStore.isEncrypted(v)) {
+        try {
+          raw[field] = this.secretStore.decrypt(v);
+        } catch (err) {
+          console.warn(`Vault Bridge: cannot decrypt ${field} — falling back to empty`, err);
+          new Notice(
+            `Vault Bridge: stored ${field} could not be decrypted (state/secret.key may be missing). Re-enter it in settings.`,
+            8000,
+          );
+          raw[field] = "";
+        }
+      } else {
+        // Plaintext from a pre-encryption install — keep as-is in memory, flag to re-save encrypted.
+        needsResaveEncrypted = true;
+      }
+    }
+
     // Keep only fields declared in DEFAULT_SETTINGS — drops any other unknown keys.
     const known: Record<string, unknown> = {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) {
       if (k in raw) known[k] = raw[k];
     }
     this.settings = Object.assign({}, DEFAULT_SETTINGS, known) as SftpSyncSettings;
+
+    if (needsResaveEncrypted) {
+      await this.persistSettings();
+    }
+  }
+
+  /** Write settings to data.json with sensitive fields encrypted. No side effects on matchers. */
+  private async persistSettings(): Promise<void> {
+    const toSave: Record<string, unknown> = { ...this.settings };
+    for (const field of ["password", "passphrase"] as const) {
+      const v = toSave[field];
+      if (typeof v === "string" && v.length > 0) {
+        toSave[field] = this.secretStore.encrypt(v);
+      }
+    }
+    await this.saveData(toSave);
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    await this.persistSettings();
     // Re-build matcher when settings change (toggles, exclude patterns).
     if (this.exclude) {
       this.exclude = new ExcludeMatcher(this.settings);
@@ -235,7 +290,7 @@ export default class SftpSyncPlugin extends Plugin {
     try {
       const engine = new SyncEngine(
         this.app, this.settings, this.deviceStore,
-        this.index, this.scanner, this.exclude, this.lastSynced,
+        this.index, this.scanner, this.exclude, this.lastSynced, this.knownHosts,
       );
       const result = await engine.syncBoth({
         onProgress: (p) => {
@@ -286,7 +341,7 @@ export default class SftpSyncPlugin extends Plugin {
     const work = (async () => {
       const engine = new PushEngine(
         this.app, this.settings, this.deviceStore,
-        this.index, this.scanner, this.lastSynced,
+        this.index, this.scanner, this.lastSynced, this.knownHosts,
       );
       await engine.pushAll();
     })();
@@ -386,7 +441,7 @@ export default class SftpSyncPlugin extends Plugin {
   // Commands
 
   async testConnection(): Promise<void> {
-    const client = new SftpClient(this.settings);
+    const client = new SftpClient(this.settings, this.knownHosts);
     try {
       await client.connect();
       await client.ensureRemoteRoot();
@@ -416,6 +471,7 @@ export default class SftpSyncPlugin extends Plugin {
         this.scanner,
         this.exclude,
         this.lastSynced,
+        this.knownHosts,
       );
       const result = await engine.syncBoth({
         onProgress: (p) => {
@@ -538,6 +594,7 @@ export default class SftpSyncPlugin extends Plugin {
         this.settings,
         this.deviceStore,
         this.exclude,
+        this.knownHosts,
         (p) => {
           if (p.total != null) this.setStatus(`rebuild ${p.scanned}/${p.total}`);
           else this.setStatus("rebuild …");
@@ -584,6 +641,7 @@ export default class SftpSyncPlugin extends Plugin {
         this.index,
         this.scanner,
         this.lastSynced,
+        this.knownHosts,
       );
       const result = await engine.pushAll({
         forceUpload: true,
@@ -623,6 +681,7 @@ export default class SftpSyncPlugin extends Plugin {
         this.scanner,
         this.exclude,
         this.lastSynced,
+        this.knownHosts,
       );
       const result = await engine.pullAll({
         forceDownload: opts.forceDownload,
@@ -679,7 +738,7 @@ export default class SftpSyncPlugin extends Plugin {
 
   /** Connect, read manifest + lock, print summary. Used to verify Phase 3. */
   async inspectRemoteState(): Promise<void> {
-    const client = new SftpClient(this.settings);
+    const client = new SftpClient(this.settings, this.knownHosts);
     try {
       await client.connect();
       await client.ensureRemoteRoot();
@@ -714,7 +773,7 @@ export default class SftpSyncPlugin extends Plugin {
 
   /** Manually break the lock (only ours; foreign locks are refused). Use after a crash. */
   async forceReleaseLock(): Promise<void> {
-    const client = new SftpClient(this.settings);
+    const client = new SftpClient(this.settings, this.knownHosts);
     try {
       await client.connect();
       const remote = new RemoteState(
@@ -742,6 +801,25 @@ export default class SftpSyncPlugin extends Plugin {
       new Notice(`Vault Bridge: force release failed — ${(err as Error).message}`, 8000);
     } finally {
       await client.end();
+    }
+  }
+
+  /** Drop the remembered SHA-256 fingerprint for the configured host:port.
+   *  Use after a deliberate server reinstall so the next connect re-runs TOFU. */
+  async forgetHostFingerprint(): Promise<void> {
+    if (!this.settings.host) {
+      new Notice("Vault Bridge: no host configured", 4000);
+      return;
+    }
+    const port = this.settings.port || 22;
+    const removed = await this.knownHosts.forget(this.settings.host, port);
+    if (removed) {
+      new Notice(
+        `Vault Bridge: forgot fingerprint for ${this.settings.host}:${port}. Next connection will trust the new server key on first contact.`,
+        6000,
+      );
+    } else {
+      new Notice(`Vault Bridge: no remembered fingerprint for ${this.settings.host}:${port}`, 5000);
     }
   }
 }

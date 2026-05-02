@@ -21,7 +21,7 @@ export class ServerResetModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h2", { text: "⚠️ Server reset detected" });
+    contentEl.createEl("h2", { text: "Server reset detected" });
 
     const p = contentEl.createEl("p");
     p.appendText("The remote manifest looks like it has been wiped or recreated.");
@@ -32,16 +32,14 @@ export class ServerResetModal extends Modal {
       `(${this.info.remoteFileCount} files).`,
     );
 
-    const warn = contentEl.createEl("p");
-    warn.style.fontWeight = "bold";
+    const warn = contentEl.createEl("p", { cls: "vbsftp-modal-warning" });
     warn.appendText(
       "If we proceed with a normal sync, the engine will see your local files as \"deleted on remote\" and try to delete them locally.",
     );
     warn.createEl("br");
     warn.appendText("This is almost certainly NOT what you want — pick one of the safe options below.");
 
-    const ul = contentEl.createEl("ul");
-    ul.style.fontSize = "0.9em";
+    const ul = contentEl.createEl("ul", { cls: "vbsftp-modal-list" });
 
     const liA = ul.createEl("li");
     liA.createEl("strong", { text: "Force push from local" });
@@ -55,11 +53,7 @@ export class ServerResetModal extends Modal {
     liC.createEl("strong", { text: "Cancel" });
     liC.appendText(" — investigate manually before doing anything.");
 
-    const buttons = contentEl.createDiv({ cls: "modal-button-container" });
-    buttons.style.display = "flex";
-    buttons.style.gap = "0.5em";
-    buttons.style.justifyContent = "flex-end";
-    buttons.style.marginTop = "1em";
+    const buttons = contentEl.createDiv({ cls: "vbsftp-modal-buttons" });
 
     const cancelBtn = buttons.createEl("button", { text: "Cancel" });
     cancelBtn.addEventListener("click", () => { this.decision = "cancel"; this.close(); });

@@ -11,11 +11,14 @@ import {
   deleteLocalFile,
 } from "../sftp/transfer";
 import { buildPlan, conflictCopyName, SyncOp, SyncPlan } from "./diff";
+import { runWithLimit } from "./concurrency";
 import type { IndexStore, IndexEntry } from "./index-store";
 import type { LastSyncedStore } from "./last-synced";
 import type { Scanner } from "./scanner";
 import type { ExcludeMatcher } from "./exclude";
 import type { DeviceStore } from "../state/device-store";
+import type { KnownHostsStore } from "../state/known-hosts-store";
+import { STATE_PATHS } from "../state/paths";
 import type { SftpSyncSettings } from "../settings";
 
 export interface SyncProgress {
@@ -81,6 +84,7 @@ export class SyncEngine {
     private scanner: Scanner,
     private exclude: ExcludeMatcher,
     private lastSynced: LastSyncedStore,
+    private knownHosts: KnownHostsStore,
   ) {}
 
   async syncBoth(opts: SyncOptions = {}): Promise<SyncOutcome> {
@@ -91,7 +95,7 @@ export class SyncEngine {
     // Make sure local index reflects current disk state.
     await this.scanner.fullScan();
 
-    const client = new SftpClient(this.settings);
+    const client = new SftpClient(this.settings, this.knownHosts);
     await client.connect();
     try {
       await client.ensureRemoteRoot();
@@ -224,11 +228,15 @@ export class SyncEngine {
         const conflictCopies: string[] = [];
         const selfHealedMissing: string[] = [];
 
-        let processed = 0;
-        const total = plan.counts.ioOps;
+        // Pre-create the local download staging dir once. writeBufferToVault otherwise
+        // races on `mkdir(state/tmp)` when several download workers run concurrently.
+        if ((await adapter.exists(STATE_PATHS.tmp)) === false) {
+          await adapter.mkdir(STATE_PATHS.tmp);
+        }
 
+        // Phase A: bookkeeping-only ops (no I/O) — execute synchronously. Order doesn't matter.
+        const ioOps: SyncOp[] = [];
         for (const op of plan.ops) {
-          // Bookkeeping-only actions (no I/O).
           if (op.action === "skip") {
             // entry survives unchanged — pick local if present, else remote, else snapshot
             const e = op.local ?? op.remote ?? op.snapshot;
@@ -244,10 +252,17 @@ export class SyncEngine {
             // entry gone — do nothing (not added to newEntries)
             continue;
           }
+          ioOps.push(op);
+        }
 
-          processed++;
+        // Phase B: parallel I/O. Each op operates on a distinct path, so writes to
+        // newEntries / conflictCopies / selfHealedMissing don't collide. RemoteDirCache
+        // is concurrency-safe; the IndexStore mutates per-path entries only.
+        let processed = 0;
+        const total = plan.counts.ioOps;
+
+        await runWithLimit(ioOps, this.settings.concurrency, async (op) => {
           onProgress?.({ processed, total, currentPath: op.path, currentAction: op.action });
-
           try {
             await this.executeOp(client, adapter, op, dirs, newEntries, conflictCopies);
           } catch (err) {
@@ -261,12 +276,13 @@ export class SyncEngine {
                 `Vault Bridge: ${op.path} missing on server — dropping manifest entry (self-heal)`,
               );
               selfHealedMissing.push(op.path);
-              // Do NOT add to newEntries — manifest will reflect the file no longer exists.
-              continue;
+              processed++;
+              return;
             }
             throw new Error(`Vault Bridge: failed on ${op.action} ${op.path} — ${(err as Error).message}`);
           }
-        }
+          processed++;
+        });
 
         // Final progress tick.
         onProgress?.({ processed, total, currentPath: null, currentAction: null });

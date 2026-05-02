@@ -1,0 +1,32 @@
+/* Vault Bridge SFTP — plugin styles */
+
+.vbsftp-textarea-full {
+  width: 100%;
+}
+
+.vbsftp-modal-warning {
+  font-weight: bold;
+}
+
+.vbsftp-modal-list {
+  font-size: 0.9em;
+}
+
+.vbsftp-modal-note {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.vbsftp-modal-buttons {
+  display: flex;
+  gap: 0.5em;
+  justify-content: flex-end;
+  margin-top: 1em;
+}
+
+.vbsftp-modal-file-list {
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.85em;
+}

@@ -1,11 +1,13 @@
 import type { App, DataAdapter } from "obsidian";
 import { SftpClient } from "../sftp/client";
-import { RemoteState, RemoteManifest, ManifestEntry } from "../sftp/remote-state";
-import { remotePathOf, parentDir } from "./path-utils";
+import { RemoteState, RemoteManifest } from "../sftp/remote-state";
+import { RemoteDirCache, uploadBuffer, readLocalAsBuffer } from "../sftp/transfer";
+import { runWithLimit } from "./concurrency";
 import type { IndexStore, IndexEntry } from "./index-store";
 import type { LastSyncedStore } from "./last-synced";
 import type { Scanner } from "./scanner";
 import type { DeviceStore } from "../state/device-store";
+import type { KnownHostsStore } from "../state/known-hosts-store";
 import type { SftpSyncSettings } from "../settings";
 
 export interface PushProgress {
@@ -46,6 +48,7 @@ export class PushEngine {
     private index: IndexStore,
     private scanner: Scanner,
     private lastSynced: LastSyncedStore,
+    private knownHosts: KnownHostsStore,
   ) {}
 
   async pushAll(opts: PushOptions = {}): Promise<PushResult> {
@@ -62,7 +65,7 @@ export class PushEngine {
       throw new Error("Local index is empty — nothing to push.");
     }
 
-    const client = new SftpClient(this.settings);
+    const client = new SftpClient(this.settings, this.knownHosts);
     await client.connect();
     try {
       await client.ensureRemoteRoot();
@@ -111,8 +114,7 @@ export class PushEngine {
         let uploaded = 0;
         const skipped = toSkip.length;
         let totalBytes = 0;
-        const ensuredDirs = new Set<string>();
-        ensuredDirs.add(this.settings.remoteRoot.replace(/\/+$/, ""));
+        const dirs = new RemoteDirCache(this.settings.remoteRoot);
 
         // Initial progress tick — already shows skipped count.
         onProgress?.({
@@ -124,7 +126,9 @@ export class PushEngine {
           bytesUploaded: 0,
         });
 
-        for (const entry of toUpload) {
+        await runWithLimit(toUpload, this.settings.concurrency, async (entry) => {
+          // Per-file: report start, upload, then update counters atomically.
+          // Order of `currentFile` reports is best-effort under concurrency.
           onProgress?.({
             processed: skipped + uploaded,
             uploaded,
@@ -134,7 +138,8 @@ export class PushEngine {
             bytesUploaded: totalBytes,
           });
 
-          await this.uploadOne(client, adapter, entry, ensuredDirs);
+          const buf = await readLocalAsBuffer(adapter, entry.path);
+          await uploadBuffer(client, this.settings.remoteRoot, entry.path, buf, dirs);
 
           newManifest.entries[entry.path] = {
             mtime: entry.mtime,
@@ -143,7 +148,7 @@ export class PushEngine {
           };
           uploaded++;
           totalBytes += entry.size;
-        }
+        });
 
         // Final progress tick.
         onProgress?.({
@@ -186,55 +191,4 @@ export class PushEngine {
     }
   }
 
-  private async uploadOne(
-    client: SftpClient,
-    adapter: DataAdapter,
-    entry: IndexEntry,
-    ensuredDirs: Set<string>,
-  ): Promise<void> {
-    const remotePath = remotePathOf(this.settings.remoteRoot, entry.path);
-    await this.ensureRemoteParents(client, remotePath, ensuredDirs);
-
-    let buf: Buffer;
-    try {
-      const ab = await adapter.readBinary(entry.path);
-      buf = Buffer.from(ab);
-    } catch (err) {
-      throw new Error(`Cannot read local ${entry.path}: ${(err as Error).message}`);
-    }
-
-    const tmp = `${remotePath}.tmp.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}`;
-    await client.raw.put(buf, tmp);
-    try {
-      await client.raw.posixRename(tmp, remotePath);
-    } catch {
-      // Some servers don't support posix-rename; fall back to delete+rename.
-      if ((await client.raw.exists(remotePath)) !== false) {
-        await client.raw.delete(remotePath);
-      }
-      await client.raw.rename(tmp, remotePath);
-    }
-  }
-
-  private async ensureRemoteParents(
-    client: SftpClient,
-    remoteFilePath: string,
-    ensured: Set<string>,
-  ): Promise<void> {
-    const parent = parentDir(remoteFilePath);
-    if (!parent || ensured.has(parent)) return;
-    // Climb up until we hit a known-existing dir, then create the chain top-down via mkdir(true).
-    if ((await client.raw.exists(parent)) === false) {
-      await client.raw.mkdir(parent, true);
-    }
-    ensured.add(parent);
-    // Mark parents-of-parent as ensured too — they must exist if mkdir succeeded.
-    let p = parent;
-    while (true) {
-      const grand = parentDir(p);
-      if (!grand || ensured.has(grand)) break;
-      ensured.add(grand);
-      p = grand;
-    }
-  }
 }
