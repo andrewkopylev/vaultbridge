@@ -31,6 +31,17 @@ export const DEFAULT_SOFT_EXCLUDES = [
   ".trash/**",
 ];
 
+/**
+ * True when the user has filled enough settings to even attempt an SFTP connection.
+ * Used to gate auto-sync triggers — opening Obsidian with a fresh install must not
+ * try to connect and surface a "Host is empty" error.
+ */
+export function isConnectionConfigured(s: SftpSyncSettings): boolean {
+  if (!s.host || !s.username || !s.remoteRoot) return false;
+  if (s.authMethod === "password") return s.password.length > 0;
+  return s.privateKeyPath.length > 0;
+}
+
 export const DEFAULT_SETTINGS: SftpSyncSettings = {
   host: "",
   port: 22,
@@ -276,7 +287,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Sync now")
-      .setDesc("Run a full sync immediately. (Available once Phase 4+ ships.)")
+      .setDesc("Run a full sync immediately.")
       .addButton((b) =>
         b.setButtonText("Sync now").onClick(() => this.plugin.syncNow()),
       );

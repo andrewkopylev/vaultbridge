@@ -1,5 +1,5 @@
 import { Notice, Plugin, TAbstractFile, TFile, debounce } from "obsidian";
-import { DEFAULT_SETTINGS, SftpSyncSettings, SftpSyncSettingTab } from "./settings";
+import { DEFAULT_SETTINGS, SftpSyncSettings, SftpSyncSettingTab, isConnectionConfigured } from "./settings";
 import { SftpClient } from "./sftp/client";
 import { RemoteState } from "./sftp/remote-state";
 import { IndexStore } from "./sync/index-store";
@@ -133,7 +133,11 @@ export default class SftpSyncPlugin extends Plugin {
 
   async onunload() {
     // (b) Quit-time best-effort push — fire and forget with a timeout.
-    if (this.startupComplete && this.settings?.autoSyncOnQuit) {
+    if (
+      this.startupComplete &&
+      this.settings?.autoSyncOnQuit &&
+      isConnectionConfigured(this.settings)
+    ) {
       try {
         await this.bestEffortQuitPush(5000);
       } catch (err) {
@@ -202,6 +206,7 @@ export default class SftpSyncPlugin extends Plugin {
     if (!this.startupComplete) return;       // ignore events during startup
     if (this.syncInProgress) return;         // engine updates index directly
     if (!this.settings.autoSyncOnChange) return;
+    if (!isConnectionConfigured(this.settings)) return;  // no creds → don't even queue
     this.autoSyncDebouncer?.();
   }
 
@@ -218,6 +223,10 @@ export default class SftpSyncPlugin extends Plugin {
   private async autoSync(reason: "startup" | "change"): Promise<void> {
     if (this.syncInProgress) {
       console.log(`Vault Bridge: auto-sync (${reason}) skipped — already running`);
+      return;
+    }
+    if (!isConnectionConfigured(this.settings)) {
+      console.log(`Vault Bridge: auto-sync (${reason}) skipped — connection not configured`);
       return;
     }
     this.syncInProgress = true;
