@@ -1,6 +1,6 @@
 import type { App, DataAdapter } from "obsidian";
 import { randomBytes } from "crypto";
-import { STATE_PATHS } from "./paths";
+import { pluginPaths, PluginPaths } from "./paths";
 
 interface DeviceInfo {
   id: string;
@@ -13,10 +13,12 @@ interface DeviceInfo {
  */
 export class DeviceStore {
   private adapter: DataAdapter;
+  private paths: PluginPaths;
   private info: DeviceInfo = { id: "", label: "" };
 
   constructor(app: App) {
     this.adapter = app.vault.adapter;
+    this.paths = pluginPaths(app.vault.configDir);
   }
 
   get id(): string { return this.info.id; }
@@ -25,9 +27,16 @@ export class DeviceStore {
   async load(): Promise<void> {
     let needSave = false;
     try {
-      if (await this.adapter.exists(STATE_PATHS.device)) {
-        const raw = await this.adapter.read(STATE_PATHS.device);
-        this.info = JSON.parse(raw);
+      if (await this.adapter.exists(this.paths.device)) {
+        const raw = await this.adapter.read(this.paths.device);
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          const obj = parsed as Partial<DeviceInfo>;
+          this.info = {
+            id: typeof obj.id === "string" ? obj.id : "",
+            label: typeof obj.label === "string" ? obj.label : "",
+          };
+        }
       }
     } catch (err) {
       console.warn("Vault Bridge: failed to load device info, regenerating", err);
@@ -51,9 +60,9 @@ export class DeviceStore {
   }
 
   private async save(): Promise<void> {
-    if (!(await this.adapter.exists(STATE_PATHS.dir))) {
-      await this.adapter.mkdir(STATE_PATHS.dir);
+    if (!(await this.adapter.exists(this.paths.stateDir))) {
+      await this.adapter.mkdir(this.paths.stateDir);
     }
-    await this.adapter.write(STATE_PATHS.device, JSON.stringify(this.info, null, 2));
+    await this.adapter.write(this.paths.device, JSON.stringify(this.info, null, 2));
   }
 }

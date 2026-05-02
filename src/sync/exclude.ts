@@ -1,4 +1,5 @@
-import { STATE_DIR_PREFIX } from "../state/paths";
+import type { App } from "obsidian";
+import { pluginPaths } from "../state/paths";
 import type { SftpSyncSettings } from "../settings";
 
 /**
@@ -35,8 +36,18 @@ export class ExcludeMatcher {
   private patterns: RegExp[];
   private excludeObsidianFolder: boolean;
   private excludeWorkspaceJson: boolean;
+  private configDir: string;
+  private stateDirPrefix: string;
+  private workspacePaths: string[];
 
-  constructor(settings: SftpSyncSettings) {
+  constructor(app: App, settings: SftpSyncSettings) {
+    const paths = pluginPaths(app.vault.configDir);
+    this.configDir = paths.configDir;
+    this.stateDirPrefix = paths.stateDirPrefix;
+    this.workspacePaths = [
+      `${this.configDir}/workspace.json`,
+      `${this.configDir}/workspace-mobile.json`,
+    ];
     this.patterns = settings.excludePatterns.map(globToRegex);
     this.excludeObsidianFolder = !settings.syncEverything;
     this.excludeWorkspaceJson = !settings.syncWorkspaceJson;
@@ -45,18 +56,16 @@ export class ExcludeMatcher {
   /** Returns true if the given vault-relative path should NOT be synced. */
   isExcluded(path: string): boolean {
     // 1. Hard-coded: our own state directory.
-    if (path === STATE_DIR_PREFIX.slice(0, -1) || path.startsWith(STATE_DIR_PREFIX)) {
+    if (path === this.stateDirPrefix.slice(0, -1) || path.startsWith(this.stateDirPrefix)) {
       return true;
     }
-    // 2. .obsidian folder excluded entirely if user opted out.
-    if (this.excludeObsidianFolder && (path === ".obsidian" || path.startsWith(".obsidian/"))) {
+    // 2. Obsidian config folder excluded entirely if user opted out.
+    if (this.excludeObsidianFolder && (path === this.configDir || path.startsWith(this.configDir + "/"))) {
       return true;
     }
     // 3. workspace.json — separate opt-in because user-asked-for full sync still excludes these.
     if (this.excludeWorkspaceJson) {
-      if (path === ".obsidian/workspace.json" || path === ".obsidian/workspace-mobile.json") {
-        return true;
-      }
+      if (this.workspacePaths.includes(path)) return true;
     }
     // 4. User-defined soft excludes.
     for (const re of this.patterns) {

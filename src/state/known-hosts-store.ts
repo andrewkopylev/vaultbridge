@@ -1,7 +1,5 @@
 import type { App } from "obsidian";
-import { STATE_PATHS } from "./paths";
-
-const KNOWN_HOSTS_PATH = `${STATE_PATHS.dir}/known-hosts.json`;
+import { pluginPaths, PluginPaths } from "./paths";
 
 export interface KnownHostEntry {
   fingerprint: string;   // SHA-256 of the server host key, base64
@@ -20,18 +18,23 @@ interface KnownHostsFile {
  * indicate a man-in-the-middle attack.
  */
 export class KnownHostsStore {
+  private paths: PluginPaths;
+  private filePath: string;
   private hosts: Record<string, KnownHostEntry> = {};
 
-  constructor(private app: App) {}
+  constructor(private app: App) {
+    this.paths = pluginPaths(app.vault.configDir);
+    this.filePath = `${this.paths.stateDir}/known-hosts.json`;
+  }
 
   async load(): Promise<void> {
     const adapter = this.app.vault.adapter;
-    if ((await adapter.exists(KNOWN_HOSTS_PATH)) === false) {
+    if ((await adapter.exists(this.filePath)) === false) {
       this.hosts = {};
       return;
     }
     try {
-      const raw = await adapter.read(KNOWN_HOSTS_PATH);
+      const raw = await adapter.read(this.filePath);
       const parsed = JSON.parse(raw) as KnownHostsFile;
       if (parsed.schemaVersion !== 1) throw new Error("unsupported known-hosts schema");
       this.hosts = parsed.hosts ?? {};
@@ -43,11 +46,11 @@ export class KnownHostsStore {
 
   private async save(): Promise<void> {
     const adapter = this.app.vault.adapter;
-    if ((await adapter.exists(STATE_PATHS.dir)) === false) {
-      await adapter.mkdir(STATE_PATHS.dir);
+    if ((await adapter.exists(this.paths.stateDir)) === false) {
+      await adapter.mkdir(this.paths.stateDir);
     }
     const file: KnownHostsFile = { schemaVersion: 1, hosts: this.hosts };
-    await adapter.write(KNOWN_HOSTS_PATH, JSON.stringify(file, null, 2));
+    await adapter.write(this.filePath, JSON.stringify(file, null, 2));
   }
 
   static keyFor(host: string, port: number): string {

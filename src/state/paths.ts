@@ -2,16 +2,31 @@
 
 export const PLUGIN_ID = "vault-bridge-sftp";
 
-const STATE_DIR = `.obsidian/plugins/${PLUGIN_ID}/state`;
+export interface PluginPaths {
+  configDir: string;
+  /** Per-device state directory; never synced. */
+  stateDir: string;
+  index: string;
+  lastSynced: string;
+  device: string;
+  tmp: string;
+  log: string;
+  /** Hard-coded path prefix that must NEVER be synced — recursion would corrupt the index. */
+  stateDirPrefix: string;
+}
 
-export const STATE_PATHS = {
-  dir: STATE_DIR,
-  index: `${STATE_DIR}/index.json`,
-  lastSynced: `${STATE_DIR}/last-synced.json`,
-  device: `${STATE_DIR}/device.json`,
-  tmp: `${STATE_DIR}/tmp`,
-  log: `${STATE_DIR}/log.jsonl`,
-} as const;
-
-/** Hard-coded path prefix that must NEVER be synced — recursion would corrupt the index. */
-export const STATE_DIR_PREFIX = STATE_DIR + "/";
+/** Build per-plugin paths rooted at the user's Obsidian config folder.
+ *  Pass `app.vault.configDir` — Obsidian lets users rename ".obsidian", so this must be dynamic. */
+export function pluginPaths(configDir: string): PluginPaths {
+  const stateDir = `${configDir}/plugins/${PLUGIN_ID}/state`;
+  return {
+    configDir,
+    stateDir,
+    index: `${stateDir}/index.json`,
+    lastSynced: `${stateDir}/last-synced.json`,
+    device: `${stateDir}/device.json`,
+    tmp: `${stateDir}/tmp`,
+    log: `${stateDir}/log.jsonl`,
+    stateDirPrefix: stateDir + "/",
+  };
+}

@@ -18,7 +18,7 @@ import type { Scanner } from "./scanner";
 import type { ExcludeMatcher } from "./exclude";
 import type { DeviceStore } from "../state/device-store";
 import type { KnownHostsStore } from "../state/known-hosts-store";
-import { STATE_PATHS } from "../state/paths";
+import { pluginPaths, PluginPaths } from "../state/paths";
 import type { SftpSyncSettings } from "../settings";
 
 export interface SyncProgress {
@@ -76,6 +76,8 @@ export interface SyncOutcome {
  * Holds the remote lock for the duration. Updates remote manifest + local snapshot atomically at the end.
  */
 export class SyncEngine {
+  private paths: PluginPaths;
+
   constructor(
     private app: App,
     private settings: SftpSyncSettings,
@@ -85,7 +87,9 @@ export class SyncEngine {
     private exclude: ExcludeMatcher,
     private lastSynced: LastSyncedStore,
     private knownHosts: KnownHostsStore,
-  ) {}
+  ) {
+    this.paths = pluginPaths(app.vault.configDir);
+  }
 
   async syncBoth(opts: SyncOptions = {}): Promise<SyncOutcome> {
     const t0 = Date.now();
@@ -146,7 +150,7 @@ export class SyncEngine {
         );
 
         // Diagnostics: show what we decided to do.
-        console.log("Vault Bridge plan:", {
+        console.debug("Vault Bridge plan:", {
           counts: plan.counts,
           localCount: localMap.size,
           remoteCount: Object.keys(manifest.entries).length,
@@ -177,7 +181,7 @@ export class SyncEngine {
         if ((trippedAbs || trippedRel) && opts.confirmBulkDelete) {
           const outgoing = plan.ops.filter((o) => o.action === "delete-remote");
           const incoming = plan.ops.filter((o) => o.action === "delete-local");
-          console.log(
+          console.debug(
             "Vault Bridge: bulk-delete threshold tripped — asking user",
             { outgoing: outgoing.length, incoming: incoming.length, totalFiles },
           );
@@ -230,8 +234,8 @@ export class SyncEngine {
 
         // Pre-create the local download staging dir once. writeBufferToVault otherwise
         // races on `mkdir(state/tmp)` when several download workers run concurrently.
-        if ((await adapter.exists(STATE_PATHS.tmp)) === false) {
-          await adapter.mkdir(STATE_PATHS.tmp);
+        if ((await adapter.exists(this.paths.tmp)) === false) {
+          await adapter.mkdir(this.paths.tmp);
         }
 
         // Phase A: bookkeeping-only ops (no I/O) — execute synchronously. Order doesn't matter.
@@ -357,7 +361,7 @@ export class SyncEngine {
       case "restore-keep-remote": {
         // Remote has the truth; download to local.
         const buf = await downloadToBuffer(client, this.settings.remoteRoot, op.path);
-        await writeBufferToVault(adapter, op.path, buf);
+        await writeBufferToVault(adapter, op.path, buf, this.paths.tmp);
         await this.scanner.refreshOne(op.path);
         // Use the freshly-rescanned local entry — sha1 must match remote, but mtime is now-local.
         const fresh = this.index.get(op.path);
@@ -412,7 +416,7 @@ export class SyncEngine {
       // Local wins → keep local on `path`. Loser content (remote) becomes the conflict-copy.
       const remoteBuf = await downloadToBuffer(client, this.settings.remoteRoot, op.path);
       // Save loser locally as the conflict-copy.
-      await writeBufferToVault(adapter, copyPath, remoteBuf);
+      await writeBufferToVault(adapter, copyPath, remoteBuf, this.paths.tmp);
       await this.scanner.refreshOne(copyPath);
       // Push conflict-copy to remote so other devices see it.
       await uploadBuffer(client, this.settings.remoteRoot, copyPath, remoteBuf, dirs);
@@ -427,13 +431,13 @@ export class SyncEngine {
       // Remote wins → keep remote on `path`. Loser content (local) becomes the conflict-copy.
       const localBuf = await readLocalAsBuffer(adapter, op.path);
       // Save loser locally as the conflict-copy.
-      await writeBufferToVault(adapter, copyPath, localBuf);
+      await writeBufferToVault(adapter, copyPath, localBuf, this.paths.tmp);
       await this.scanner.refreshOne(copyPath);
       // Push conflict-copy to remote so other devices see it.
       await uploadBuffer(client, this.settings.remoteRoot, copyPath, localBuf, dirs);
       // Pull winner (remote) into local (overwrite).
       const remoteBuf = await downloadToBuffer(client, this.settings.remoteRoot, op.path);
-      await writeBufferToVault(adapter, op.path, remoteBuf);
+      await writeBufferToVault(adapter, op.path, remoteBuf, this.paths.tmp);
       await this.scanner.refreshOne(op.path);
 
       const winnerEntry = this.index.get(op.path);
@@ -454,7 +458,7 @@ function isRemoteFileMissing(err: unknown): boolean {
   const e = err as { code?: unknown; message?: unknown };
   if (typeof e.code === "number" && e.code === 2 /* SFTP_STATUS_NO_SUCH_FILE */) return true;
   if (typeof e.code === "string" && (e.code === "ENOENT" || e.code === "ERR_NO_SUCH_FILE")) return true;
-  const msg = String(e.message ?? "").toLowerCase();
+  const msg = typeof e.message === "string" ? e.message.toLowerCase() : "";
   return msg.includes("no such file") || msg.includes("not found");
 }
 

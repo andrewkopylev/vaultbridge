@@ -153,7 +153,7 @@ export class RemoteState {
 
     // Race verification: pause briefly then re-read to make sure no other client
     // wrote on top of us during the window.
-    await new Promise((r) => setTimeout(r, RACE_VERIFY_MS));
+    await new Promise((r) => activeWindow.setTimeout(r, RACE_VERIFY_MS));
     const after = await this.readLock();
     if (!after || after.deviceId !== our.deviceId || after.acquiredAt !== our.acquiredAt) {
       return null;

@@ -1,7 +1,6 @@
 import type { DataAdapter } from "obsidian";
 import { SftpClient } from "./client";
 import { remotePathOf, parentDir } from "../sync/path-utils";
-import { STATE_PATHS } from "../state/paths";
 
 /** Cache of remote directories already known to exist within a single sync transaction.
  *  Concurrency-safe: every ancestor along a path is ensured top-down through the same
@@ -97,20 +96,22 @@ export async function downloadToBuffer(
   return buf;
 }
 
-/** Write a Buffer into the vault at `vaultPath`, atomically via state/tmp/. */
+/** Write a Buffer into the vault at `vaultPath`, atomically via the given tmp directory.
+ *  The caller (engine) provides `tmpDir` because it owns the path layout. */
 export async function writeBufferToVault(
   adapter: DataAdapter,
   vaultPath: string,
   buf: Buffer,
+  tmpDir: string,
 ): Promise<void> {
   const parent = parentDir(vaultPath);
   if (parent && (await adapter.exists(parent)) === false) {
     await adapter.mkdir(parent);
   }
-  if ((await adapter.exists(STATE_PATHS.tmp)) === false) {
-    await adapter.mkdir(STATE_PATHS.tmp);
+  if ((await adapter.exists(tmpDir)) === false) {
+    await adapter.mkdir(tmpDir);
   }
-  const tmp = `${STATE_PATHS.tmp}/dl.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}`;
+  const tmp = `${tmpDir}/dl.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}`;
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   await adapter.writeBinary(tmp, ab);
   try {
@@ -119,7 +120,10 @@ export async function writeBufferToVault(
     }
     await adapter.rename(tmp, vaultPath);
   } catch (err) {
-    try { await adapter.remove(tmp); } catch {}
+    // Best-effort cleanup of the staging file; never let cleanup errors mask the rename failure.
+    try {
+      await adapter.remove(tmp);
+    } catch (_cleanupErr) { /* ignore */ }
     throw err;
   }
 }

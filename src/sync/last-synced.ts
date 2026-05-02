@@ -1,5 +1,5 @@
 import type { App, DataAdapter } from "obsidian";
-import { STATE_PATHS } from "../state/paths";
+import { pluginPaths, PluginPaths } from "../state/paths";
 import type { ManifestEntry } from "../sftp/remote-state";
 
 /** Snapshot S — what the world looked like at the end of the last successful sync. */
@@ -19,10 +19,12 @@ const EMPTY: LastSyncedSnapshot = {
 
 export class LastSyncedStore {
   private adapter: DataAdapter;
+  private paths: PluginPaths;
   private data: LastSyncedSnapshot = structuredClone(EMPTY);
 
   constructor(app: App) {
     this.adapter = app.vault.adapter;
+    this.paths = pluginPaths(app.vault.configDir);
   }
 
   get snapshot(): LastSyncedSnapshot {
@@ -31,11 +33,11 @@ export class LastSyncedStore {
 
   async load(): Promise<void> {
     try {
-      if (!(await this.adapter.exists(STATE_PATHS.lastSynced))) {
+      if (!(await this.adapter.exists(this.paths.lastSynced))) {
         this.data = structuredClone(EMPTY);
         return;
       }
-      const raw = await this.adapter.read(STATE_PATHS.lastSynced);
+      const raw = await this.adapter.read(this.paths.lastSynced);
       const parsed = JSON.parse(raw) as LastSyncedSnapshot;
       if (parsed.schemaVersion !== 1) throw new Error("unsupported schema");
       this.data = parsed;
@@ -47,9 +49,9 @@ export class LastSyncedStore {
 
   async save(snapshot: LastSyncedSnapshot): Promise<void> {
     this.data = snapshot;
-    if (!(await this.adapter.exists(STATE_PATHS.dir))) {
-      await this.adapter.mkdir(STATE_PATHS.dir);
+    if (!(await this.adapter.exists(this.paths.stateDir))) {
+      await this.adapter.mkdir(this.paths.stateDir);
     }
-    await this.adapter.write(STATE_PATHS.lastSynced, JSON.stringify(this.data));
+    await this.adapter.write(this.paths.lastSynced, JSON.stringify(this.data));
   }
 }

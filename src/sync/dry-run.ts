@@ -21,7 +21,7 @@ export interface DryRunReport {
 
 /** Compute the sync plan without executing anything. Useful for diagnostics. */
 export async function dryRun(
-  app: App,
+  _app: App,
   settings: SftpSyncSettings,
   deviceStore: DeviceStore,
   index: IndexStore,

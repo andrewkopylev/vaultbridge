@@ -1,5 +1,5 @@
 import type { App, DataAdapter } from "obsidian";
-import { STATE_PATHS } from "../state/paths";
+import { pluginPaths, PluginPaths } from "../state/paths";
 
 export interface IndexEntry {
   path: string;     // vault-relative, forward slashes
@@ -19,11 +19,13 @@ const EMPTY_INDEX: Index = { entries: {}, lastScannedAt: 0, schemaVersion: 1 };
 export class IndexStore {
   private data: Index = structuredClone(EMPTY_INDEX);
   private dirty = false;
-  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushTimer: number | null = null;
   private adapter: DataAdapter;
+  private paths: PluginPaths;
 
   constructor(app: App) {
     this.adapter = app.vault.adapter;
+    this.paths = pluginPaths(app.vault.configDir);
   }
 
   get all(): IndexEntry[] {
@@ -79,11 +81,11 @@ export class IndexStore {
 
   async load(): Promise<void> {
     try {
-      if (!(await this.adapter.exists(STATE_PATHS.index))) {
+      if (!(await this.adapter.exists(this.paths.index))) {
         this.data = structuredClone(EMPTY_INDEX);
         return;
       }
-      const raw = await this.adapter.read(STATE_PATHS.index);
+      const raw = await this.adapter.read(this.paths.index);
       const parsed = JSON.parse(raw) as Index;
       if (parsed.schemaVersion !== 1) throw new Error("unsupported schema");
       this.data = parsed;
@@ -96,29 +98,29 @@ export class IndexStore {
 
   /** Force-write index to disk, regardless of dirty flag. Cancels any pending debounced flush. */
   async flush(): Promise<void> {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
+    if (this.flushTimer !== null) {
+      activeWindow.clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
     await this.ensureStateDir();
-    await this.adapter.write(STATE_PATHS.index, JSON.stringify(this.data));
+    await this.adapter.write(this.paths.index, JSON.stringify(this.data));
     this.dirty = false;
   }
 
   private markDirty(): void {
     this.dirty = true;
-    if (this.flushTimer) return;
-    this.flushTimer = setTimeout(() => {
+    if (this.flushTimer !== null) return;
+    this.flushTimer = activeWindow.setTimeout(() => {
       this.flushTimer = null;
       if (this.dirty) {
-        void this.flush().catch((err) => console.error("Vault Bridge: index flush failed", err));
+        this.flush().catch((err: unknown) => console.error("Vault Bridge: index flush failed", err));
       }
     }, 5000);
   }
 
   private async ensureStateDir(): Promise<void> {
-    if (!(await this.adapter.exists(STATE_PATHS.dir))) {
-      await this.adapter.mkdir(STATE_PATHS.dir);
+    if (!(await this.adapter.exists(this.paths.stateDir))) {
+      await this.adapter.mkdir(this.paths.stateDir);
     }
   }
 }

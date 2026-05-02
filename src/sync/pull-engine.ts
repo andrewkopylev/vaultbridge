@@ -10,7 +10,7 @@ import type { ExcludeMatcher } from "./exclude";
 import type { DeviceStore } from "../state/device-store";
 import type { KnownHostsStore } from "../state/known-hosts-store";
 import type { SftpSyncSettings } from "../settings";
-import { STATE_PATHS } from "../state/paths";
+import { pluginPaths, PluginPaths } from "../state/paths";
 
 export interface PullProgress {
   processed: number;     // files considered so far (downloaded + skipped)
@@ -43,6 +43,8 @@ export interface PullResult {
  * Wholesale reconciliation including deletes is the job of Phase 6 bidirectional sync.
  */
 export class PullEngine {
+  private paths: PluginPaths;
+
   constructor(
     private app: App,
     private settings: SftpSyncSettings,
@@ -52,7 +54,9 @@ export class PullEngine {
     private exclude: ExcludeMatcher,
     private lastSynced: LastSyncedStore,
     private knownHosts: KnownHostsStore,
-  ) {}
+  ) {
+    this.paths = pluginPaths(app.vault.configDir);
+  }
 
   async pullAll(opts: PullOptions = {}): Promise<PullResult> {
     const t0 = Date.now();
@@ -110,7 +114,7 @@ export class PullEngine {
 
         let downloaded = 0;
         let totalBytes = 0;
-        await this.ensureLocalDir(adapter, STATE_PATHS.tmp);
+        await this.ensureLocalDir(adapter, this.paths.tmp);
 
         // Parallel pool of downloads on the same SFTP session.
         // ssh2 multiplexes RPC requests over the channel; this hides RTT
@@ -184,7 +188,7 @@ export class PullEngine {
 
     // Download to a tmp staging file in our state/tmp/, then rename in place.
     // This avoids leaving a corrupted file at the target if writeBinary is interrupted.
-    const tmp = `${STATE_PATHS.tmp}/dl.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}`;
+    const tmp = `${this.paths.tmp}/dl.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}`;
     // adapter.writeBinary expects ArrayBuffer; Buffer.buffer + slice gives a fresh ArrayBuffer copy.
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
     await adapter.writeBinary(tmp, ab);
@@ -195,8 +199,10 @@ export class PullEngine {
       }
       await adapter.rename(tmp, vaultPath);
     } catch (err) {
-      // Best-effort cleanup of the staging file if the rename fails.
-      try { await adapter.remove(tmp); } catch {}
+      // Best-effort cleanup of the staging file; never let cleanup errors mask the rename failure.
+      try {
+        await adapter.remove(tmp);
+      } catch (_cleanupErr) { /* ignore */ }
       throw err;
     }
   }

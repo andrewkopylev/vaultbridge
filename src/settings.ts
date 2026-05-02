@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, Notice } from "obsidian";
+import { App, PluginSettingTab, Setting } from "obsidian";
 import type SftpSyncPlugin from "./main";
 
 export type AuthMethod = "password" | "key";
@@ -88,9 +88,9 @@ export class SftpSyncSettingTab extends PluginSettingTab {
         t
           .setPlaceholder("example.com")
           .setValue(this.plugin.settings.host)
-          .onChange(async (v) => {
+          .onChange((v) => {
             this.plugin.settings.host = v.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           }),
       );
 
@@ -101,10 +101,10 @@ export class SftpSyncSettingTab extends PluginSettingTab {
         t
           .setPlaceholder("22")
           .setValue(String(this.plugin.settings.port))
-          .onChange(async (v) => {
+          .onChange((v) => {
             const n = parseInt(v, 10);
             this.plugin.settings.port = Number.isFinite(n) && n > 0 ? n : 22;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           }),
       );
 
@@ -113,23 +113,24 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .addText((t) =>
         t
           .setValue(this.plugin.settings.username)
-          .onChange(async (v) => {
+          .onChange((v) => {
             this.plugin.settings.username = v.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           }),
       );
 
     new Setting(containerEl)
       .setName("Authentication")
-      .setDesc("Password or SSH private key. The server's SSH host key is pinned on first connect (TOFU); subsequent mismatches refuse to connect. Use \"Forget remembered host fingerprint\" after a deliberate server reinstall.")
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      .setDesc("Password or SSH private key. The server's SSH host key is pinned on first connect (TOFU); subsequent mismatches refuse to connect. Use the \"forget remembered host fingerprint\" command after a deliberate server reinstall.")
       .addDropdown((d) =>
         d
           .addOption("password", "Password")
           .addOption("key", "Private key")
           .setValue(this.plugin.settings.authMethod)
-          .onChange(async (v) => {
+          .onChange((v) => {
             this.plugin.settings.authMethod = v as AuthMethod;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
             this.display();
           }),
       );
@@ -140,22 +141,24 @@ export class SftpSyncSettingTab extends PluginSettingTab {
         .setDesc("Encrypted at rest (AES-256-GCM) with a per-device key in state/secret.key. The state directory never syncs, so a leaked data.json on the SFTP server cannot be decrypted without local access. SSH keys are still preferred on shared machines.")
         .addText((t) => {
           t.inputEl.type = "password";
-          t.setValue(this.plugin.settings.password).onChange(async (v) => {
+          t.setValue(this.plugin.settings.password).onChange((v) => {
             this.plugin.settings.password = v;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           });
         });
     } else {
       new Setting(containerEl)
         .setName("Private key path")
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
         .setDesc("Absolute filesystem path, e.g. /home/user/.ssh/id_ed25519.")
         .addText((t) =>
           t
+            // eslint-disable-next-line obsidianmd/ui/sentence-case
             .setPlaceholder("/home/user/.ssh/id_ed25519")
             .setValue(this.plugin.settings.privateKeyPath)
-            .onChange(async (v) => {
+            .onChange((v) => {
               this.plugin.settings.privateKeyPath = v.trim();
-              await this.plugin.saveSettings();
+              void this.plugin.saveSettings();
             }),
         );
 
@@ -164,23 +167,25 @@ export class SftpSyncSettingTab extends PluginSettingTab {
         .setDesc("Empty if the key is unencrypted.")
         .addText((t) => {
           t.inputEl.type = "password";
-          t.setValue(this.plugin.settings.passphrase).onChange(async (v) => {
+          t.setValue(this.plugin.settings.passphrase).onChange((v) => {
             this.plugin.settings.passphrase = v;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           });
         });
     }
 
     new Setting(containerEl)
       .setName("Remote root")
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       .setDesc("Absolute path on the server, e.g. /home/user/obsidian-vault. Created if it doesn't exist.")
       .addText((t) =>
         t
+          // eslint-disable-next-line obsidianmd/ui/sentence-case
           .setPlaceholder("/home/user/obsidian-vault")
           .setValue(this.plugin.settings.remoteRoot)
-          .onChange(async (v) => {
+          .onChange((v) => {
             this.plugin.settings.remoteRoot = v.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           }),
       );
 
@@ -188,37 +193,37 @@ export class SftpSyncSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Sync scope").setHeading();
 
     new Setting(containerEl)
-      .setName("Sync everything (.obsidian too)")
-      .setDesc("When ON, plugins/themes/snippets/hotkeys are synced so all devices look identical.")
+      .setName("Sync the Obsidian config folder too")
+      .setDesc("When enabled, plugins/themes/snippets/hotkeys are synced so all devices look identical.")
       .addToggle((t) =>
-        t.setValue(this.plugin.settings.syncEverything).onChange(async (v) => {
+        t.setValue(this.plugin.settings.syncEverything).onChange((v) => {
           this.plugin.settings.syncEverything = v;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         }),
       );
 
     new Setting(containerEl)
       .setName("Sync workspace.json")
-      .setDesc("OFF by default. Workspace files describe open tabs/panels for this specific device. Turning this ON will cause flapping if you work on two devices at once.")
+      .setDesc("Off by default. Workspace files describe open tabs/panels for this specific device. Turning this on will cause flapping if you work on two devices at once.")
       .addToggle((t) =>
-        t.setValue(this.plugin.settings.syncWorkspaceJson).onChange(async (v) => {
+        t.setValue(this.plugin.settings.syncWorkspaceJson).onChange((v) => {
           this.plugin.settings.syncWorkspaceJson = v;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         }),
       );
 
     new Setting(containerEl)
       .setName("Exclude patterns")
-      .setDesc("One pattern per line. Gitignore-style. The plugin's own state/ directory is ALWAYS excluded regardless.")
+      .setDesc("One pattern per line. Gitignore-style. The plugin's own state/ directory is always excluded regardless.")
       .addTextArea((t) => {
         t.inputEl.rows = 6;
         t.inputEl.addClass("vbsftp-textarea-full");
-        t.setValue(this.plugin.settings.excludePatterns.join("\n")).onChange(async (v) => {
+        t.setValue(this.plugin.settings.excludePatterns.join("\n")).onChange((v) => {
           this.plugin.settings.excludePatterns = v
             .split("\n")
             .map((s) => s.trim())
             .filter((s) => s.length > 0);
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         });
       });
 
@@ -229,9 +234,9 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setName("Sync on startup")
       .setDesc("Run a full bidirectional sync once Obsidian finishes loading.")
       .addToggle((t) =>
-        t.setValue(this.plugin.settings.autoSyncOnStartup).onChange(async (v) => {
+        t.setValue(this.plugin.settings.autoSyncOnStartup).onChange((v) => {
           this.plugin.settings.autoSyncOnStartup = v;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         }),
       );
 
@@ -239,9 +244,9 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setName("Sync on quit")
       .setDesc("Best-effort push when Obsidian closes (5s timeout, push-only — no prompts).")
       .addToggle((t) =>
-        t.setValue(this.plugin.settings.autoSyncOnQuit).onChange(async (v) => {
+        t.setValue(this.plugin.settings.autoSyncOnQuit).onChange((v) => {
           this.plugin.settings.autoSyncOnQuit = v;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         }),
       );
 
@@ -249,9 +254,9 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setName("Sync after changes")
       .setDesc("Debounced sync triggered by vault edits (create / modify / delete / rename).")
       .addToggle((t) =>
-        t.setValue(this.plugin.settings.autoSyncOnChange).onChange(async (v) => {
+        t.setValue(this.plugin.settings.autoSyncOnChange).onChange((v) => {
           this.plugin.settings.autoSyncOnChange = v;
-          await this.plugin.saveSettings();
+          void this.plugin.saveSettings();
         }),
       );
 
@@ -261,11 +266,11 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .addText((t) =>
         t
           .setValue(String(this.plugin.settings.autoSyncDebounceSeconds))
-          .onChange(async (v) => {
+          .onChange((v) => {
             const n = parseInt(v, 10);
             this.plugin.settings.autoSyncDebounceSeconds =
               Number.isFinite(n) && n >= 2 && n <= 600 ? n : 10;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           }),
       );
 
@@ -278,11 +283,11 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .addText((t) =>
         t
           .setValue(String(this.plugin.settings.concurrency))
-          .onChange(async (v) => {
+          .onChange((v) => {
             const n = parseInt(v, 10);
             this.plugin.settings.concurrency =
               Number.isFinite(n) && n >= MIN_CONCURRENCY && n <= MAX_CONCURRENCY ? n : 8;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           }),
       );
 
@@ -310,7 +315,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setName("Sync now")
       .setDesc("Run a full sync immediately.")
       .addButton((b) =>
-        b.setButtonText("Sync now").onClick(() => this.plugin.syncNow()),
+        b.setButtonText("Sync now").onClick(() => { void this.plugin.syncNow(); }),
       );
 
     // ─── Device ───────────────────────────────────────────────────────────
@@ -321,10 +326,11 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setDesc("Used in conflict-copy filenames so you can tell which device the conflicting edit came from. Lives in state/device.json — each machine has its own.")
       .addText((t) =>
         t
+          // eslint-disable-next-line obsidianmd/ui/sentence-case
           .setPlaceholder("home-desktop")
           .setValue(this.plugin.deviceStore.label)
-          .onChange(async (v) => {
-            await this.plugin.deviceStore.setLabel(v);
+          .onChange((v) => {
+            void this.plugin.deviceStore.setLabel(v);
           }),
       );
 

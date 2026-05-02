@@ -1,8 +1,7 @@
 import type { App } from "obsidian";
 import { randomBytes, createCipheriv, createDecipheriv } from "crypto";
-import { STATE_PATHS } from "./paths";
+import { pluginPaths, PluginPaths } from "./paths";
 
-const SECRET_PATH = `${STATE_PATHS.dir}/secret.key`;
 const ENC_PREFIX = "enc:v1:";
 const KEY_BYTES = 32;   // AES-256
 const IV_BYTES = 12;    // 96-bit IV recommended for GCM
@@ -17,28 +16,33 @@ const IV_BYTES = 12;    // 96-bit IV recommended for GCM
  * locally with the user's privileges.
  */
 export class SecretStore {
+  private paths: PluginPaths;
+  private secretPath: string;
   private key: Buffer | null = null;
 
-  constructor(private app: App) {}
+  constructor(private app: App) {
+    this.paths = pluginPaths(app.vault.configDir);
+    this.secretPath = `${this.paths.stateDir}/secret.key`;
+  }
 
   async load(): Promise<void> {
     const adapter = this.app.vault.adapter;
-    if ((await adapter.exists(SECRET_PATH)) === true) {
-      const ab = await adapter.readBinary(SECRET_PATH);
+    if ((await adapter.exists(this.secretPath)) === true) {
+      const ab = await adapter.readBinary(this.secretPath);
       const buf = Buffer.from(ab);
       if (buf.length !== KEY_BYTES) {
-        throw new Error(`Vault Bridge: ${SECRET_PATH} has unexpected length ${buf.length}`);
+        throw new Error(`Vault Bridge: ${this.secretPath} has unexpected length ${buf.length}`);
       }
       this.key = buf;
       return;
     }
 
-    if ((await adapter.exists(STATE_PATHS.dir)) === false) {
-      await adapter.mkdir(STATE_PATHS.dir);
+    if ((await adapter.exists(this.paths.stateDir)) === false) {
+      await adapter.mkdir(this.paths.stateDir);
     }
     const fresh = randomBytes(KEY_BYTES);
-    const ab = fresh.buffer.slice(fresh.byteOffset, fresh.byteOffset + fresh.byteLength) as ArrayBuffer;
-    await adapter.writeBinary(SECRET_PATH, ab);
+    const ab = fresh.buffer.slice(fresh.byteOffset, fresh.byteOffset + fresh.byteLength);
+    await adapter.writeBinary(this.secretPath, ab);
     this.key = fresh;
   }
 
