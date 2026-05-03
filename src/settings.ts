@@ -137,7 +137,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
     if (this.plugin.settings.authMethod === "password") {
       new Setting(containerEl)
         .setName("Password")
-        .setDesc("Encrypted at rest (AES-256-GCM) with a per-device key in the plugin state directory. State never syncs, so a leaked data.json on the SFTP server cannot be decrypted without local access. SSH keys are still preferred on shared machines.")
+        .setDesc("Encrypted at rest using a per-device key. The key never syncs to the server, so password disclosure requires local filesystem access. SSH keys are still preferred on shared machines.")
         .addText((t) => {
           t.inputEl.type = "password";
           t.setValue(this.plugin.settings.password).onChange((v) => {
