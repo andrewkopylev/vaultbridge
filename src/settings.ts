@@ -137,7 +137,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
     if (this.plugin.settings.authMethod === "password") {
       new Setting(containerEl)
         .setName("Password")
-        .setDesc("Encrypted at rest using a per-device key. The key never syncs to the server, so password disclosure requires local filesystem access. SSH keys are still preferred on shared machines.")
+        .setDesc("Encrypted on this device. Use SSH keys on shared machines.")
         .addText((t) => {
           t.inputEl.type = "password";
           t.setValue(this.plugin.settings.password).onChange((v) => {

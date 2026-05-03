@@ -85,15 +85,22 @@ export async function readLocalAsBuffer(adapter: DataAdapter, vaultPath: string)
   return Buffer.from(ab);
 }
 
-/** Read a remote file as a Buffer (full content in memory). */
+/** Read a remote file as a Buffer (full content in memory).
+ *  Note: ssh2-sftp-client's `get()` (via the underlying concat-stream) returns an empty
+ *  array `[]` instead of an empty Buffer when the remote file is zero bytes, so we
+ *  defensively coerce to a real Buffer here. Callers downstream rely on `.buffer`,
+ *  `.byteOffset`, and `Buffer.isBuffer` semantics that the empty-array sentinel
+ *  doesn't satisfy. */
 export async function downloadToBuffer(
   client: SftpClient,
   remoteRoot: string,
   vaultPath: string,
 ): Promise<Buffer> {
   const remotePath = remotePathOf(remoteRoot, vaultPath);
-  const buf = (await client.raw.get(remotePath)) as Buffer;
-  return buf;
+  const result = await client.raw.get(remotePath);
+  if (Buffer.isBuffer(result)) return result;
+  // 0-byte file → concat-stream gave us [] — return a real empty Buffer instead.
+  return Buffer.alloc(0);
 }
 
 /** Write a Buffer into the vault at `vaultPath`, atomically via the given tmp directory.

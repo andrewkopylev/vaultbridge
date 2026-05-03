@@ -1,6 +1,6 @@
 {
   "name": "obsidian-vault-bridge-sftp",
-  "version": "0.9.9",
+  "version": "0.9.10",
   "description": "Vault Bridge SFTP — bidirectional Obsidian vault sync over SSH/SFTP",
   "main": "main.js",
   "scripts": {

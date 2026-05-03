@@ -174,10 +174,12 @@ export class PullEngine {
   ): Promise<void> {
     const remotePath = remotePathOf(this.settings.remoteRoot, vaultPath);
 
-    // Get full file content. ssh2-sftp-client.get returns a Buffer when no stream destination is given.
+    // Get full file content. ssh2-sftp-client.get returns a Buffer for non-empty files,
+    // but an empty array `[]` (via concat-stream) for zero-byte files. Coerce to Buffer.
     let buf: Buffer;
     try {
-      buf = (await client.raw.get(remotePath)) as Buffer;
+      const result = await client.raw.get(remotePath);
+      buf = Buffer.isBuffer(result) ? result : Buffer.alloc(0);
     } catch (err) {
       throw new Error(`Cannot fetch remote ${remotePath}: ${(err as Error).message}`);
     }
