@@ -86,7 +86,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setDesc("SFTP server hostname or IP address.")
       .addText((t) =>
         t
-          .setPlaceholder("example.com")
+          .setPlaceholder("Example.com")
           .setValue(this.plugin.settings.host)
           .onChange((v) => {
             this.plugin.settings.host = v.trim();
@@ -121,8 +121,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Authentication")
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      .setDesc("Password or SSH private key. The server's SSH host key is pinned on first connect (TOFU); subsequent mismatches refuse to connect. Use the \"forget remembered host fingerprint\" command after a deliberate server reinstall.")
+      .setDesc("Password or SSH private key. The server's SSH host key is pinned on first connect; subsequent mismatches refuse to connect. Run the \"forget remembered host fingerprint\" command after a deliberate server reinstall.")
       .addDropdown((d) =>
         d
           .addOption("password", "Password")
@@ -138,7 +137,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
     if (this.plugin.settings.authMethod === "password") {
       new Setting(containerEl)
         .setName("Password")
-        .setDesc("Encrypted at rest (AES-256-GCM) with a per-device key in state/secret.key. The state directory never syncs, so a leaked data.json on the SFTP server cannot be decrypted without local access. SSH keys are still preferred on shared machines.")
+        .setDesc("Encrypted at rest (AES-256-GCM) with a per-device key in the plugin state directory. State never syncs, so a leaked data.json on the SFTP server cannot be decrypted without local access. SSH keys are still preferred on shared machines.")
         .addText((t) => {
           t.inputEl.type = "password";
           t.setValue(this.plugin.settings.password).onChange((v) => {
@@ -149,12 +148,9 @@ export class SftpSyncSettingTab extends PluginSettingTab {
     } else {
       new Setting(containerEl)
         .setName("Private key path")
-        // eslint-disable-next-line obsidianmd/ui/sentence-case
-        .setDesc("Absolute filesystem path, e.g. /home/user/.ssh/id_ed25519.")
+        .setDesc("Absolute filesystem path to your SSH private key.")
         .addText((t) =>
           t
-            // eslint-disable-next-line obsidianmd/ui/sentence-case
-            .setPlaceholder("/home/user/.ssh/id_ed25519")
             .setValue(this.plugin.settings.privateKeyPath)
             .onChange((v) => {
               this.plugin.settings.privateKeyPath = v.trim();
@@ -176,12 +172,9 @@ export class SftpSyncSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Remote root")
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      .setDesc("Absolute path on the server, e.g. /home/user/obsidian-vault. Created if it doesn't exist.")
+      .setDesc("Absolute path on the server. Created if it doesn't exist.")
       .addText((t) =>
         t
-          // eslint-disable-next-line obsidianmd/ui/sentence-case
-          .setPlaceholder("/home/user/obsidian-vault")
           .setValue(this.plugin.settings.remoteRoot)
           .onChange((v) => {
             this.plugin.settings.remoteRoot = v.trim();
@@ -326,8 +319,7 @@ export class SftpSyncSettingTab extends PluginSettingTab {
       .setDesc("Used in conflict-copy filenames so you can tell which device the conflicting edit came from. Lives in state/device.json — each machine has its own.")
       .addText((t) =>
         t
-          // eslint-disable-next-line obsidianmd/ui/sentence-case
-          .setPlaceholder("home-desktop")
+          .setPlaceholder("Home laptop")
           .setValue(this.plugin.deviceStore.label)
           .onChange((v) => {
             void this.plugin.deviceStore.setLabel(v);

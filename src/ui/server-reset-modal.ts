@@ -37,7 +37,7 @@ export class ServerResetModal extends Modal {
       "If we proceed with a normal sync, the engine will see your local files as \"deleted on remote\" and try to delete them locally.",
     );
     warn.createEl("br");
-    warn.appendText("This is almost certainly NOT what you want — pick one of the safe options below.");
+    warn.appendText("This is almost certainly the wrong outcome — pick one of the safe options below.");
 
     const ul = contentEl.createEl("ul", { cls: "vbsftp-modal-list" });
 

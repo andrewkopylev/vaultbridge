@@ -173,7 +173,7 @@ export default class SftpSyncPlugin extends Plugin {
     if (this.index) {
       try {
         await this.index.flush();
-      } catch (_flushErr) { /* ignore — best-effort on shutdown */ }
+      } catch { /* ignore — best-effort on shutdown */ }
     }
     // Clean up any pending debounced calls.
     for (const fn of this.pendingRefresh.values()) fn.cancel?.();
@@ -562,7 +562,7 @@ export default class SftpSyncPlugin extends Plugin {
       new Notice("Forcing push from local…", 3000);
       try {
         await this._runForcePush();
-      } catch (_err) {
+      } catch {
         // Already reported by _runForcePush; nothing more to do.
       }
       return;

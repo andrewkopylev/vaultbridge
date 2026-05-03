@@ -47,7 +47,7 @@ export class BulkDeleteConfirmModal extends Modal {
 
     const note = contentEl.createEl("p", { cls: "vbsftp-modal-note" });
     note.appendText(
-      "Choosing \"Skip deletes\" will perform pushes/pulls/conflict-copies but leave deletions for review later — the next sync will re-detect them.",
+      "Skipping deletes will still perform pushes/pulls/conflict-copies, but leave deletions for review later — the next sync will re-detect them.",
     );
 
     const buttons = contentEl.createDiv({ cls: "vbsftp-modal-buttons" });

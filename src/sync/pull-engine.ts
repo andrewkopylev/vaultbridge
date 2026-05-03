@@ -202,7 +202,7 @@ export class PullEngine {
       // Best-effort cleanup of the staging file; never let cleanup errors mask the rename failure.
       try {
         await adapter.remove(tmp);
-      } catch (_cleanupErr) { /* ignore */ }
+      } catch { /* ignore */ }
       throw err;
     }
   }
